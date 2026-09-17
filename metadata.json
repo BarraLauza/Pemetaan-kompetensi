@@ -1,0 +1,6 @@
+{
+  "name": "Pemetaan Kompetensi & IDP Karyawan",
+  "description": "Aplikasi Pemetaan Kompetensi Karyawan, Analisis PDF Asesmen AI, Rekomendasi Pengembangan Diri, Dashboard IDP Real-Time & Integrasi Google Sheets (Kode.gs)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
