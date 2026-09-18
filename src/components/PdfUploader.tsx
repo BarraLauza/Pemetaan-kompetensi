@@ -146,7 +146,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
     setErrorMsg(null);
   };
 
-  // Process Batch Files with Gemini API Server Route with automatic retries and fail-safe recovery
+  // Process Batch Files directly using Google Gemini SDK from frontend
   const handleProcessBatch = async () => {
     if (fileList.length === 0 || isProcessing) return;
 
@@ -175,7 +175,6 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
       setCurrentProcessingIndex(i);
       const item = updatedList[i];
 
-      // Update current file state to 'processing'
       setFileList(prev => prev.map((f, idx) => idx === i ? {
         ...f,
         status: 'processing',
@@ -191,129 +190,184 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({
         reader.readAsDataURL(item.file);
 
         const dataUrl = await base64Promise;
+        const base64Data = dataUrl.split(',')[1];
 
-        // Pacing delay between batch items to avoid throttling
-        if (i > 0) {
-          await new Promise(resolve => setTimeout(resolve, 800));
+        setFileList(prev => prev.map((f, idx) => idx === i ? {
+          ...f,
+          status: 'processing',
+          progressMessage: 'Menganalisis dokumen secara presisi dengan AI Gemini...'
+        } : f));
+
+        // Panggil langsung Google Gemini SDK dari browser
+        const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+        if (!apiKey) {
+          throw new Error('VITE_GEMINI_API_KEY belum dikonfigurasi di environment Netlify.');
         }
 
-        let result: any = null;
-        let attempt = 1;
-        const maxAttempts = 3;
+        const ai = new GoogleGenAI({ apiKey });
 
-        while (attempt <= maxAttempts) {
-          try {
-            setFileList(prev => prev.map((f, idx) => idx === i ? {
-              ...f,
-              status: 'processing',
-              progressMessage: attempt === 1 
-                ? 'Menganalisis kompetensi & psikometri dengan AI Gemini...' 
-                : `Menghubungi AI Gemini (Percobaan ${attempt}/${maxAttempts})...`
-            } : f));
-
-            const response = await fetch('/api/analyze-assessment', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                pdfBase64: dataUrl,
-                mimeType: item.file.type || 'application/pdf',
-                fileName: item.file.name,
-                customNote: customNotes
-              })
-            });
-
-            if (response.ok) {
-              const jsonResp = await response.json();
-              if (jsonResp && jsonResp.success && jsonResp.data) {
-                result = jsonResp;
-                break;
-              }
-            }
-          } catch (fetchErr) {
-            console.warn(`[Batch Upload] Attempt ${attempt} failed for ${item.file.name}:`, fetchErr);
-          }
-
-          if (attempt < maxAttempts) {
-            await new Promise(r => setTimeout(r, 1200 * attempt));
-          }
-          attempt++;
-        }
-
-        let extracted: any = result?.data;
-
-        // Fail-safe client extraction if all server attempts faced issues
-        if (!extracted) {
-          const cleanName = item.file.name
-            .replace(/\.pdf$/i, '')
-            .replace(/^(hasil|laporan|asesmen|assessment|cv|profil|file|dokumen)[_\-\s]*/i, '')
-            .replace(/[_\-]+/g, ' ')
-            .trim() || 'Karyawan';
-          const formattedName = cleanName.split(' ')
-            .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-            .join(' ');
-          
-          let hash = 0;
-          for (let c = 0; c < formattedName.length; c++) {
-            hash = (hash << 5) - hash + formattedName.charCodeAt(c);
-            hash |= 0;
-          }
-          const absHash = Math.abs(hash);
-
-          extracted = {
-            nip: `NIP-${202600 + (absHash % 8999)}`,
-            name: formattedName,
-            position: 'Senior Specialist',
-            department: 'Operasional',
-            targetDepartment: 'Operasional',
-            email: `${formattedName.toLowerCase().replace(/[^a-z]/g, '')}@company.co.id`,
-            assessmentDate: new Date().toISOString().split('T')[0],
-            overallScore: 80 + (absHash % 15),
-            iqScore: 108 + (absHash % 20),
-            performanceScore: 3.8,
-            potentialScore: 3.9,
-            talentBox: 'Pemain Utama (Core Player)',
-            competencies: {
-              leadership: 3.8,
-              communication: 3.9,
-              problemSolving: 4.1,
-              technicalExcellence: 4.2,
-              collaboration: 4.3,
-              innovation: 3.8,
-              strategicThinking: 3.9,
-              adaptability: 4.2,
+        const promptInstruction = `
+          Analisis dokumen PDF asesmen karyawan ini secara cermat dan teliti. Ekstrak data berikut ke dalam format JSON yang valid (tanpa blok markdown tambahan):
+          {
+            "nip": "NIP karyawan atau buat format NIP-2026xxxx jika tidak ada",
+            "name": "Nama lengkap karyawan dari dokumen",
+            "position": "Jabatan saat ini",
+            "department": "Departemen / Divisi",
+            "overallScore": Skor asesmen total keseluruhan (angka 0-100),
+            "iqScore": Nilai skor IQ / kapasitas berpikir (angka 70-160),
+            "performanceScore": Skor kinerja (angka 1.0 - 5.0),
+            "potentialScore": Skor potensi (angka 1.0 - 5.0),
+            "talentBox": "Kategori 9-box persis dari dokumen (contoh: Pemain Utama (Core Player), Bintang (Star Player), dll)",
+            "competencies": {
+              "leadership": 4.0,
+              "communication": 4.0,
+              "problemSolving": 4.0,
+              "technicalExcellence": 4.0,
+              "collaboration": 4.0,
+              "innovation": 4.0,
+              "strategicThinking": 4.0,
+              "adaptability": 4.0
             },
-            customCompetencies: [
-              { name: "Analisis Masalah & Pengambilan Keputusan", score: 4.1, description: "Mampu membedah akar persoalan dan memberikan solusi terukur." },
-              { name: "Perencanaan & Pengorganisasian", score: 3.9, description: "Tertib dalam menyusun alur kerja dan pengawasan milestone." },
-              { name: "Integritas & Kerjasama Tim", score: 4.4, description: "Menjunjung tinggi kode etik kerja dan suportif terhadap rekan kerja." }
-            ],
-            strengths: ['Komitmen tinggi pada target kerja', 'Kemampuan pemecahan masalah operasional yang baik', 'Kolaborasi tim solid'],
-            weaknesses: ['Perlu peningkatan delegasi tugas', 'Penguatan perencanaan jangka panjang'],
-            recommendationCategory: 'Dapat Disarankan',
-            evaluatedPosition: 'Senior Specialist',
-            thinkingCapacity: 'High Average',
-            briefReading: 'Karyawan menunjukkan etos kerja stabil dan kapasitas analisis yang siap dikembangkan.',
-            keyInsights: `Hasil asesmen psikometri ${formattedName} menunjukkan profil kompetensi operasional yang solid.`,
-            recommendedRoles: ['Senior Specialist', 'Assistant Manager'],
-            idp: {
-              targetRole: 'Assistant Manager',
-              goals: [{
-                title: 'Program Peningkatan Kompetensi Manajerial',
-                category: 'Pelatihan / Kursus',
-                competencyTarget: 'Kepemimpinan',
-                priority: 'Tinggi',
-                status: 'Berjalan',
-                targetDate: '2026-11-30',
-                metrics: 'Sertifikasi kompetensi manajerial',
-                managerNotes: 'Dukungan penuh dari pimpinan divisi.',
-                actionItems: [
-                  { task: 'Menyelesaikan modul kepemimpinan dasar', completed: true, dueDate: '2026-08-30' },
-                  { task: 'Menerapkan proyek perbaikan tim', completed: false, dueDate: '2026-10-31' }
-                ]
-              }]
+            "strengths": ["Kekuatan 1", "Kekuatan 2", "Kekuatan 3"],
+            "weaknesses": ["Area pengembangan 1", "Area pengembangan 2"],
+            "keyInsights": "Ringkasan eksekutif (Executive Summary) yang tajam dan mendalam sesuai dokumen.",
+            "recommendedRoles": ["Rekomendasi Jabatan 1"],
+            "recommendationCategory": "Dapat Disarankan",
+            "idp": {
+              "targetRole": "Target jabatan pengembangan",
+              "goals": [
+                {
+                  "title": "Program Pengembangan Kompetensi Utama",
+                  "category": "Pelatihan / Kursus",
+                  "competencyTarget": "Kepemimpinan",
+                  "priority": "Tinggi",
+                  "status": "Berjalan",
+                  "targetDate": "2026-11-30",
+                  "metrics": "Penyelesaian program",
+                  "managerNotes": "Catatan manajer pendukung",
+                  "actionItems": [
+                    { "task": "Aksi pengembangan 1", "completed": false, "dueDate": "2026-09-30" }
+                  ]
+                }
+              ]
             }
-          };
-        }
+          }
+          Catatan tambahan dari user: ${customNotes || 'Tidak ada'}
+        `;
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.7-flash',
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: item.file.type || 'application/pdf',
+                    data: base64Data
+                  }
+                },
+                { text: promptInstruction }
+              ]
+            }
+          ]
+        });
+
+        const rawText = response.text || '';
+        const cleanedJsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const extracted = JSON.parse(cleanedJsonText);
+
+        const timestamp = Date.now() + i;
+        const uniqueUid = `emp-ai-${timestamp}-${Math.random().toString(36).slice(2, 7)}`;
+
+        const newEmp: Employee = {
+          id: uniqueUid,
+          nip: extracted.nip || `NIP-${Math.floor(100000 + Math.random() * 900000)}`,
+          name: extracted.name || item.file.name.replace('.pdf', ''),
+          position: extracted.position || 'Spesialis',
+          department: extracted.department || 'Operasional',
+          targetDepartment: extracted.department || 'Operasional',
+          email: `${(extracted.name || 'karyawan').toLowerCase().replace(/[^a-z]/g, '')}@company.co.id`,
+          assessmentDate: new Date().toISOString().split('T')[0],
+          overallScore: Math.round(Number(extracted.overallScore) || 80),
+          iqScore: Math.round(Number(extracted.iqScore) || 112),
+          performanceScore: Number(extracted.performanceScore || 3.8),
+          potentialScore: Number(extracted.potentialScore || 3.8),
+          talentBox: extracted.talentBox || 'Pemain Utama (Core Player)',
+          competencies: {
+            leadership: Number(extracted.competencies?.leadership) || 3.8,
+            communication: Number(extracted.competencies?.communication) || 3.8,
+            problemSolving: Number(extracted.competencies?.problemSolving) || 3.8,
+            technicalExcellence: Number(extracted.competencies?.technicalExcellence) || 3.8,
+            collaboration: Number(extracted.competencies?.collaboration) || 3.8,
+            innovation: Number(extracted.competencies?.innovation) || 3.8,
+            strategicThinking: Number(extracted.competencies?.strategicThinking) || 3.8,
+            adaptability: Number(extracted.competencies?.adaptability) || 3.8,
+          },
+          strengths: extracted.strengths || ['Komitmen kerja yang sangat baik'],
+          weaknesses: extracted.weaknesses || ['Penguatan strategi operasional'],
+          keyInsights: extracted.keyInsights || 'Hasil analisis dokumen asesmen.',
+          recommendedRoles: extracted.recommendedRoles || ['Spesialis Utama'],
+          recommendationCategory: extracted.recommendationCategory || 'Dapat Disarankan',
+          evaluatedPosition: extracted.position || 'Spesialis',
+          thinkingCapacity: formatThinkingCapacity({ iqScore: Number(extracted.iqScore) || 112 }),
+          uploadedPdfName: item.file.name,
+          isUploadedFromPdf: true,
+          source: 'pdf_upload',
+          idp: {
+            id: `idp-ai-${timestamp}`,
+            employeeId: uniqueUid,
+            targetRole: extracted.idp?.targetRole || 'Manajer',
+            overallProgress: 35,
+            updatedAt: new Date().toISOString().split('T')[0],
+            goals: (extracted.idp?.goals || []).map((g: any, gIdx: number) => ({
+              id: `goal-ai-${timestamp}-${gIdx}`,
+              title: g.title || 'Program Peningkatan Kompetensi',
+              category: g.category || 'Pelatihan / Kursus',
+              competencyTarget: g.competencyTarget || 'Kepemimpinan',
+              priority: g.priority || 'Tinggi',
+              status: 'Berjalan',
+              targetDate: g.targetDate || '2026-11-30',
+              metrics: g.metrics || 'Sertifikasi program',
+              managerNotes: g.managerNotes || 'Dukungan penuh pimpinan.',
+              actionItems: (g.actionItems || []).map((act: any, aIdx: number) => ({
+                id: `act-ai-${timestamp}-${gIdx}-${aIdx}`,
+                task: act.task,
+                completed: Boolean(act.completed),
+                dueDate: act.dueDate || '2026-10-30'
+              }))
+            }))
+          }
+        };
+
+        setFileList(prev => prev.map((f, idx) => idx === i ? {
+          ...f,
+          status: 'success',
+          extractedEmployee: newEmp,
+          progressMessage: 'Berhasil Dianalisis'
+        } : f));
+
+        newEmployees.push(newEmp);
+        onAssessmentAnalyzed(newEmp);
+
+      } catch (err: any) {
+        console.error("Error processing file with Gemini SDK:", err);
+        setFileList(prev => prev.map((f, idx) => idx === i ? {
+          ...f,
+          status: 'error',
+          errorMessage: err.message || 'Gagal memproses PDF dengan AI'
+        } : f));
+      }
+    }
+
+    setBatchSuccessEmployees(newEmployees);
+    setIsProcessing(false);
+    setCurrentProcessingIndex(-1);
+
+    if (onBatchUploadComplete && newEmployees.length > 0) {
+      onBatchUploadComplete(newEmployees);
+    }
+  };
 
         // Check if employee already exists in database from previous sessions to update in-place
         const extractedNip = (extracted.nip || '').trim().toLowerCase();
