@@ -6,7 +6,7 @@ const ai = new GoogleGenAI({ apiKey });
 export async function analyzeTalentData(promptText: string, dataKaryawan: any) {
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', // atau model lain yang sesuai
+      model: 'gemini-3.7-flash', // atau model lain yang sesuai
       contents: [
         {
           role: 'user',
