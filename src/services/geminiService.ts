@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
-const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.GEMINI_API_KEY || '';
+const apiKey = process.env.VITE_GEMINI_API_KEY || (import.meta as any).env?.GEMINI_API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
 
 export async function analyzeTalentData(promptText: string, dataKaryawan: any) {
