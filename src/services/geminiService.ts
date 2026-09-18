@@ -1,12 +1,18 @@
 import { GoogleGenAI } from '@google/genai';
 
-const apiKey = process.env.VITE_GEMINI_API_KEY || (import.meta as any).env?.GEMINI_API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
-
 export async function analyzeTalentData(promptText: string, dataKaryawan: any) {
   try {
+    // Ambil API Key langsung dari environment variable Vite di browser
+    const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+    
+    if (!apiKey) {
+      throw new Error('VITE_GEMINI_API_KEY belum terbaca di environment browser.');
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash', // atau model lain yang sesuai
+      model: 'gemini-3.7-flash',
       contents: [
         {
           role: 'user',
@@ -16,9 +22,10 @@ export async function analyzeTalentData(promptText: string, dataKaryawan: any) {
         }
       ]
     });
+
     return response.text;
   } catch (error) {
     console.error('Error generating AI analysis:', error);
-    return 'Gagal memproses analisis AI. Pastikan API Key valid.';
+    throw error;
   }
 }
