@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
 // Inisialisasi API Gemini menggunakan environment variable dari Vercel
-const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
 
 export async function analyzeTalentData(promptText: string, dataKaryawan: any) {
